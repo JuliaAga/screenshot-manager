@@ -1,0 +1,22 @@
+services:
+  later:
+    build: .
+    image: screenshot-manager:local
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:8787:8787"
+    environment:
+      COOKIE_SECURE: "${COOKIE_SECURE:-0}"
+    volumes:
+      - later-data:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    mem_limit: 384m
+    stop_grace_period: 10s
+volumes:
+  later-data:
