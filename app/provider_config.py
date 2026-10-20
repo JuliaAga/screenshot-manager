@@ -33,6 +33,7 @@ def public_settings(config):
     selected = config.get("provider", "lmstudio")
     # Preserve the existing response fields for older clients.
     return {**visible[selected], "provider": selected, "providers": visible, "timeout": config.get("timeout", 300),
+            "has_shortcut_token": bool(config.get("shortcut_token_hash")),
             "auto_approve": config.get("auto_approve", False), "google_models": list(GOOGLE_FREE_MODELS)}
 
 

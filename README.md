@@ -22,7 +22,7 @@ This is a working prototype, designed for one private collection per installatio
 - Active and archived views, Read/Watched actions, confirmed permanent deletion, and optional screenshot removal.
 - ZIP export/restore of collection data and images, excluding login and model credentials.
 
-No automatic calendar insertion or reminders, separate user accounts, native Share Sheet integration, offline browser synchronization, or public hosting configuration. The adapters are isolated in `app/extraction.py`; no automatic fallback changes your selected service.
+No automatic calendar insertion or reminders, separate user accounts, offline browser synchronization, or public hosting configuration. The adapters are isolated in `app/extraction.py`; no automatic fallback changes your selected service.
 
 ## Quick start on a computer
 
@@ -139,6 +139,10 @@ Use **Serve**, not public Funnel. No router port forwarding is required. Follow 
 
 For temporary access only on your trusted home network, change `BIND_ADDRESS` to your server's LAN IP and leave `COOKIE_SECURE=0`. HTTP does not encrypt passwords or screenshots; prefer the HTTPS path above. Do not expose this prototype directly to the public internet.
 
+## iPhone Share → Later
+
+Use an Apple Shortcut to send images directly from Photos to your private server. Create an upload-only token in Settings & backup → iPhone Shortcut, then follow the [iPhone setup guide](docs/IPHONE_SHORTCUT.md). Tokens are shown once, stored as hashes, revocable, and excluded from portable backups. The server must be reachable from your phone.
+
 ## Daily use
 
 1. Open the web app on any device; optionally add a home-screen shortcut using your browser.
@@ -198,6 +202,6 @@ Code layout: `app/store.py` for persistence, `app/extraction.py` for model/OCR i
 
 This source and documentation can be published under the included MIT license. Create a repository and push this directory after reviewing it. The project excludes `data/` and `.env`; also exclude any server backups you create. Never publish screenshots, collection databases, credentials, or personal backups.
 
-No prebuilt Docker image is published. Native phone sharing and full cross-platform hardware validation are future work.
+No prebuilt Docker image is published. Full cross-platform hardware validation remains future work.
 
 Auto-approve in Settings is off by default. When enabled, successful future extractions save all proposals directly as separate entries with their screenshots and personal comments. Existing review cards stay in the Inbox; duplicates are not merged automatically. Failed uploads remain available for retry or manual entry.

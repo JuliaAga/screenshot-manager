@@ -95,6 +95,64 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(job["comment"], "Grouped")
         self.assertEqual(len(job["images"]), 2)
 
+    def test_shortcut_upload_token_scope_rotation_and_revocation(self):
+        self.assertFalse(self.call("settings")[1]["has_shortcut_token"])
+        self.assertEqual(self.call("shortcut-token", {"action": "create"}, {"X-CSRF-Token": "wrong"})[0], 403)
+        token = self.call("shortcut-token", {"action": "create"})[1]["token"]
+        self.assertNotIn(token, json.dumps(self.server.app.store.config()))
+        self.assertNotIn("shortcut_token_hash", self.call("settings")[1])
+        self.cookie = ""
+
+        def send(raw=PNG, bearer=token, mime="image/png"):
+            req = urllib.request.Request(self.url + "/api/shortcut-upload", data=raw,
+                headers={"Authorization": "Bearer " + bearer, "Content-Type": mime})
+            try:
+                with urllib.request.urlopen(req) as response:
+                    return response.status, json.load(response)
+            except urllib.error.HTTPError as exc:
+                with exc:
+                    return exc.code, json.load(exc)
+
+        self.assertEqual(send(bearer="wrong")[0], 401)
+        self.assertEqual(send(raw=b"invalid")[0], 400)
+        self.assertEqual(send(mime="text/plain")[0], 415)
+        self.assertEqual(send(raw=PNG, mime="application/octet-stream")[0], 200)
+        status, result = send()
+        self.assertEqual(status, 200)
+        self.assertEqual(len(result["ids"]), 1)
+        self.assertEqual(self.call("state", headers={"Authorization": "Bearer " + token})[0], 401)
+        self.assertEqual(self.call("settings", headers={"Authorization": "Bearer " + token})[0], 401)
+        self.call("login", {"password": "test-password-long"})
+        self.assertEqual(len(self.call("state")[1]["jobs"]), 2)
+        backup = self.call("export", raw=True)[1]
+        with zipfile.ZipFile(io.BytesIO(backup)) as archive:
+            self.assertNotIn(token.encode(), archive.read("collection.json"))
+            self.assertNotIn(b"shortcut_token_hash", archive.read("collection.json"))
+        self.call("shortcut-token", {"action": "create"})
+        self.assertEqual(send()[0], 401)
+        token2 = self.call("shortcut-token", {"action": "create"})[1]["token"]
+        self.call("shortcut-token", {"action": "revoke"})
+        self.assertEqual(send(bearer=token2)[0], 401)
+
+    def test_shortcut_upload_rate_limit_and_size(self):
+        token = self.call("shortcut-token", {"action": "create"})[1]["token"]
+        import time
+        self.server.app.shortcut_attempts = [time.time()] * 60
+        req = urllib.request.Request(self.url + "/api/shortcut-upload", data=PNG,
+            headers={"Authorization": "Bearer " + token, "Content-Type": "image/png"})
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(req)
+        self.assertEqual(caught.exception.code, 429)
+        caught.exception.close()
+        self.server.app.shortcut_attempts = []
+        req = urllib.request.Request(self.url + "/api/shortcut-upload", data=PNG,
+            headers={"Authorization": "Bearer " + token, "Content-Type": "image/png",
+                     "Content-Length": str(8 * 1024 * 1024 + 1)})
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(req)
+        self.assertEqual(caught.exception.code, 413)
+        caught.exception.close()
+
     def test_invalid_upload_atomic(self):
         status, _ = self.call("upload", {"files": [{"data": base64.b64encode(PNG).decode()}, {"data": "not-an-image"}]})
         self.assertEqual(status, 400)

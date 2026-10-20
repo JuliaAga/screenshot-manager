@@ -107,6 +107,7 @@ class Application:
         self.store = Store(data_dir)
         self.stop = threading.Event()
         self.login_attempts = {}
+        self.shortcut_attempts = []
         self.worker = None
         if worker:
             self.worker = threading.Thread(target=self.work, daemon=True, name="extractor")
@@ -283,6 +284,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             path = urllib.parse.urlsplit(self.path).path
+            if path == "/api/shortcut-upload":
+                self.shortcut_upload()
+                return
             if path in ("/api/setup", "/api/login"):
                 self.check_origin()
                 self.login(path, self.json_body())
@@ -301,6 +305,35 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             LOG.exception("Request failed")
             self.send(500, {"error": "Something went wrong. Check the server log."})
+
+    def shortcut_upload(self):
+        # Bearer authentication is deliberately limited to this write-only endpoint.
+        with MUTATION:
+            digest = self.app.store.config().get("shortcut_token_hash", "")
+            auth = self.headers.get("Authorization", "")
+            if not digest or not auth.startswith("Bearer ") or not hmac.compare_digest(
+                    hashlib.sha256(auth[7:].encode()).hexdigest(), digest):
+                raise ApiError("Invalid or revoked Shortcut token", 401)
+            now = time.time()
+            self.app.shortcut_attempts = [t for t in self.app.shortcut_attempts if t > now - 60]
+            if len(self.app.shortcut_attempts) >= 60:
+                raise ApiError("Too many uploads; wait a minute and try again", 429)
+            self.app.shortcut_attempts.append(now)
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError as exc:
+                raise ApiError("Invalid request size") from exc
+            if not 0 < length <= 8 * 1024 * 1024:
+                raise ApiError("Limit: 8 MB per image", 413)
+            if self.headers.get("Content-Type", "").split(";")[0] not in (
+                    "image/png", "image/jpeg", "application/octet-stream"):
+                raise ApiError("Send a PNG or JPEG file", 415)
+            raw = self.rfile.read(length)
+            if len(raw) != length:
+                raise ApiError("Incomplete image upload")
+            result = self.route_post("/api/upload", {"files": [
+                {"data": base64.b64encode(raw).decode()}]}, None)
+        self.send(200, {**result, "message": "Sent to Later"})
 
     def login(self, path, body):
         now = time.time()
@@ -328,7 +361,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def route_post(self, path, body, session):
         store = self.app.store
-        if path == "/api/logout":
+        if path == "/api/shortcut-token":
+            action = body.get("action")
+            if action not in ("create", "revoke"):
+                raise ApiError("Choose create or revoke")
+            token = secrets.token_urlsafe(32) if action == "create" else ""
+            store.set_config({"shortcut_token_hash": hashlib.sha256(token.encode()).hexdigest() if token else ""})
+            return {"ok": True, "token": token}
+        elif path == "/api/logout":
             with store.connect() as db:
                 db.execute("DELETE FROM sessions WHERE id=?", (session["id"],))
         elif path == "/api/settings":
